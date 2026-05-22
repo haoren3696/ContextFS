@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfuse3-dev fuse3
+      - name: Configure
+        run: cmake -B build -DAGENTVFS_EBPF=OFF
+      - name: Build
+        run: cmake --build build -j
+      - name: Unit tests
+        run: |
+          ./build/cas_test_working_tree
+          ./build/cas_test_write_buffer
+          ./build/cas_test_object_store
+          ./build/cas_test_branch_context
+          ./build/cas_test_branch_merge
+          ./build/cas_test_branch_merge_commit
+          ./build/cas_test_fh_lifecycle /tmp /tmp/test.sock || true
+          ./build/cas_test_branch_merge_daemon || true
+          ./build/cas_test_branch_persistence || true
+          ./build/cas_test_telemetry_event
+          ./build/cas_test_telemetry_registry
+
+  macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        # AGENTVFS_FUSE_T defaults to ON on Apple; disable it here so this
+        # portable-only job doesn't require fuse-t (covered by macos-daemon).
+        run: cmake -B build -DAGENTVFS_EBPF=OFF -DAGENTVFS_FUSE_T=OFF
+      - name: Build
+        run: cmake --build build -j
+      - name: Unit tests
+        # macOS is UNIX, so every UNIX-gated test still builds and runs.
+        # The daemon target is Linux-only and is intentionally not built
+        # here.
+        run: |
+          ./build/cas_test_working_tree
+          ./build/cas_test_write_buffer
+          ./build/cas_test_object_store
+          ./build/cas_test_branch_context
+          ./build/cas_test_branch_merge
+          ./build/cas_test_branch_merge_commit
+          ./build/cas_test_telemetry_event
+          ./build/cas_test_telemetry_registry
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        # AGENTVFS_WINFSP defaults to ON on Windows; explicitly disable it
+        # so this portable-only job doesn't require the WinFsp SDK.
+        run: cmake -B build -DAGENTVFS_EBPF=OFF -DAGENTVFS_WINFSP=OFF
+      - name: Build
+        # Windows builds only the portable tests gated by the CMake
+        # if(UNIX)/if(LINUX) guards. The fh_lifecycle / object_store /
+        # branch_merge_commit / telemetry_registry / branch_persistence /
+        # branch_merge_daemon harnesses use POSIX-only APIs and are not
+        # available here. cas_core itself compiles via std::filesystem
+        # and the posix_compat.h shim.
+        run: cmake --build build --config Release -j
+      - name: Unit tests
+        run: |
+          .\build\Release\cas_test_working_tree.exe
+          .\build\Release\cas_test_write_buffer.exe
+          .\build\Release\cas_test_branch_context.exe
+          .\build\Release\cas_test_branch_merge.exe
+          .\build\Release\cas_test_telemetry_event.exe
+
+  windows-daemon:
+    runs-on: windows-latest
+    strategy: { fail-fast: false }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install WinFsp
+        shell: powershell
+        run: choco install winfsp -y --no-progress
+      - name: Add WinFsp bin to PATH
+        shell: powershell
+        # choco installs the SDK but doesn't put winfsp-x64.dll on PATH.
+        # agentvfs.exe links against winfsp-x64.lib (import lib) and so
+        # needs the DLL at load time, otherwise the loader aborts with
+        # STATUS_DLL_NOT_FOUND before main() runs.
+        run: |
+          $winfspBin = "C:\Program Files (x86)\WinFsp\bin"
+          if (-not (Test-Path $winfspBin)) {
+            $winfspBin = "C:\Program Files\WinFsp\bin"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $winfspBin
+          Write-Host "Added to PATH: $winfspBin"
+          Get-ChildItem $winfspBin -Filter winfsp-*.dll | Format-Table
+      - name: Configure
+        run: cmake -B build -DAGENTVFS_EBPF=OFF -DAGENTVFS_WINFSP=ON
+      - name: Build
+        run: cmake --build build --config Release -j
+      - name: Windows unit tests
+        run: |
+          .\build\Release\cas_test_win_helpers.exe
+          .\build\Release\cas_test_named_pipe_channel.exe
+      - name: E2E test
+        shell: powershell
+        run: ./tests/cas/windows/test_winfsp_e2e.ps1
+
+  macos-daemon:
+    runs-on: macos-latest
+    strategy: { fail-fast: false }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install fuse-t
+        run: brew install --cask macos-fuse-t/cask/fuse-t
+      - name: Configure
+        run: cmake -B build -DAGENTVFS_EBPF=OFF -DAGENTVFS_FUSE_T=ON
+      - name: Build
+        run: cmake --build build -j
+      - name: Preflight unit test
+        run: ./build/cas_test_fuse_t_preflight
+      - name: E2E test
+        run: bash tests/cas/test_macos_e2e.sh

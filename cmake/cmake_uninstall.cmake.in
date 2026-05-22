@@ -1,0 +1,14 @@
+if(NOT EXISTS "@CMAKE_CURRENT_BINARY_DIR@/install_manifest.txt")
+    message(FATAL_ERROR
+        "No install manifest at @CMAKE_CURRENT_BINARY_DIR@/install_manifest.txt; "
+        "run 'cmake --install build' before 'uninstall'.")
+endif()
+
+file(READ "@CMAKE_CURRENT_BINARY_DIR@/install_manifest.txt" files)
+string(REGEX REPLACE "\n" ";" files "${files}")
+foreach(file ${files})
+    if(file AND (EXISTS "${file}" OR IS_SYMLINK "${file}"))
+        message(STATUS "Uninstalling: ${file}")
+        file(REMOVE "${file}")
+    endif()
+endforeach()

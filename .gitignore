@@ -1,0 +1,34 @@
+# Build output
+build/
+build-*/
+
+# Runtime artifacts
+.agentvfs-store/
+*.ndjson
+*.sock
+
+# Editor droppings
+*.swp
+*.swo
+*.bak
+*.orig
+.DS_Store
+
+# Compiler droppings
+*.o
+*.a
+*.so
+*.out
+
+# vmlinux generated header (eBPF build)
+vmlinux.h
+*.skel.h
+*.bpf.o
+
+# Python venv (for telemetry processing scripts)
+.venv/
+.pytest_cache/
+__pycache__/
+
+# Local-only baseline projects used by benchmarks/agent-sim/ — not shipped
+baselines/

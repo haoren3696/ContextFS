@@ -1,0 +1,60 @@
+#include "control_socket.h"
+#include "daemon.h"
+#include <cstdio>
+#include <cstring>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <unistd.h>
+
+namespace cas {
+
+ControlSocket::ControlSocket(Daemon&) {}
+
+ControlSocket::~ControlSocket() { stop(); }
+
+bool ControlSocket::start(const std::string& endpoint, RequestHandler handler) {
+    handler_ = std::move(handler);
+    socket_path_ = endpoint;
+    ::unlink(socket_path_.c_str());
+    listen_fd_ = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (listen_fd_ < 0) return false;
+    struct sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    std::strncpy(addr.sun_path, socket_path_.c_str(), sizeof(addr.sun_path) - 1);
+    if (bind(listen_fd_, (struct sockaddr*)&addr, sizeof(addr)) != 0) return false;
+    chmod(socket_path_.c_str(), 0600);
+    if (listen(listen_fd_, 4) != 0) return false;
+    th_ = std::thread([this] { accept_loop(); });
+    return true;
+}
+
+void ControlSocket::stop() {
+    stop_ = true;
+    if (listen_fd_ >= 0) { ::shutdown(listen_fd_, SHUT_RDWR); close(listen_fd_); listen_fd_ = -1; }
+    if (th_.joinable()) th_.join();
+    ::unlink(socket_path_.c_str());
+}
+
+void ControlSocket::accept_loop() {
+    while (!stop_.load()) {
+        int c = accept(listen_fd_, nullptr, nullptr);
+        if (c < 0) { if (stop_.load()) return; continue; }
+        std::string buf;
+        char ch;
+        while (read(c, &ch, 1) == 1) {
+            if (ch == '\n') {
+                std::string resp = handler_(buf) + "\n";
+                ssize_t n = write(c, resp.data(), resp.size());
+                (void)n;
+                buf.clear();
+            } else {
+                buf.push_back(ch);
+                if (buf.size() > 64 * 1024) break;
+            }
+        }
+        close(c);
+    }
+}
+
+} // namespace cas
