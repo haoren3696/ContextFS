@@ -6,7 +6,7 @@
 
 <p align="center">A checkpointable, branchable, and content-addressed FUSE filesystem for AI agents.</p>
 
-## Key Features
+## What you get
 
 | Feature | Description |
 |---------|-------------|
@@ -15,25 +15,32 @@
 | 🔗&nbsp;**Content&#8209;Addressed&nbsp;Store** | blake3-hashed objects deduplicate across checkpoints and branches — near-zero-cost snapshots |
 | 🛰️&nbsp;**Pluggable&nbsp;Telemetry** | NDJSON audit via eBPF / fanotify / ptrace / `LD_PRELOAD`; Wasm or Lua to filter and verdict |
 | 🖥️&nbsp;**Cross&#8209;Platform** | libfuse3 (Linux), fuse-t (macOS), WinFsp (Windows) |
-| 🤖&nbsp;**Agent&#8209;CLI&nbsp;Skills** | `./start.sh` mounts a project and installs a Skill for Claude Code / Codex to checkpoint and roll back |
+| 🤖&nbsp;**Agent&#8209;CLI&nbsp;Skills** | `agentvfs-quickstart` mounts a project and installs a Skill for Claude Code / Codex to checkpoint and roll back |
 
-## Quick start (Linux)
-
-Reference platform. eBPF additionally requires kernel BTF at `/sys/kernel/btf/vmlinux`; pass `-DAGENTVFS_EBPF=OFF` to skip.
+## Install
 
 ```bash
-# Dependencies (Debian/Ubuntu)
-sudo apt install build-essential cmake libfuse3-dev pkg-config \
-                 clang libbpf-dev linux-tools-generic
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/thustorage/ContextFS/main/install.sh | sh
 
-# Build & install
-cmake -B build && cmake --build build -j
-sudo cmake --install build
+# Windows (PowerShell)
+iwr -useb https://raw.githubusercontent.com/thustorage/ContextFS/main/install.ps1 | iex
+```
 
-# Mount a project — prints `mount=<path>` and a `cd <path> && claude` (or `codex`) hint
-export AGENTVFS_WORKSPACE_ROOT=~/.local/share/agentvfs
-./start.sh /path/to/project
-# equivalent: ./start.sh --root ~/.local/share/agentvfs /path/to/project
+The Linux prebuilt needs glibc ≥ 2.35 (Debian 12, Ubuntu 22.04+, RHEL 9+). The daemon needs a FUSE runtime: `sudo apt install libfuse3-3` (Linux), `brew install --cask macos-fuse-t/cask/fuse-t` (macOS), or [WinFsp 2.0+](https://winfsp.dev) (Windows). Older distros or anything else: see **Build from source** below.
+
+## Mount a project
+
+```bash
+# Linux / macOS
+agentvfs-quickstart /path/to/project
+# prints `mount=<path>` and a `cd <path> && claude` (or `codex`) hint
+```
+
+```powershell
+# Windows
+agentvfs.exe --source C:\some\dir --mountpoint Z:
+agentvfs-ctl.exe --sock \\.\pipe\agentvfs-<hash> checkpoint baseline
 ```
 
 ## Driving the daemon directly
@@ -44,29 +51,6 @@ agentvfs workspace checkpoint my-task before-refactor
 # ... agent makes changes ...
 agentvfs workspace rollback my-task before-refactor
 agentvfs workspace stop my-task
-```
-
-## Windows
-
-Requires [WinFsp 2.0+](https://winfsp.dev). The control pipe name is printed at startup.
-
-```powershell
-cmake -B build -DAGENTVFS_EBPF=OFF -DAGENTVFS_WINFSP=ON
-cmake --build build --config Release -j
-.\build\Release\agentvfs.exe --source C:\some\dir --mountpoint Z:
-.\build\Release\agentvfs-ctl.exe --sock \\.\pipe\agentvfs-<hash> checkpoint baseline
-```
-
-## macOS
-
-Requires [fuse-t](https://www.fuse-t.org/). The control socket path is printed at startup.
-
-```bash
-brew install --cask macos-fuse-t/cask/fuse-t
-cmake -B build -DAGENTVFS_EBPF=OFF -DAGENTVFS_FUSE_T=ON
-cmake --build build -j
-./build/agentvfs --source ~/some-dir --mountpoint /tmp/agentvfs-mnt &
-./build/agentvfs-ctl --sock /tmp/agentvfs-<hash>.sock checkpoint baseline
 ```
 
 ## How it works
@@ -88,12 +72,43 @@ FUSE / WinFsp / fuse-t  ──►  WorkingTree (in-memory, COW)  ──►  Obje
 
 | Feature | Linux | macOS | Windows |
 |---|:---:|:---:|:---:|
+| Prebuilt installer | ✅ x86_64 (glibc ≥ 2.35) | ✅ arm64 + x86_64 | ⚠️ no `agentvfs-quickstart` |
 | Checkpoint &amp; Rollback | ✅ | ✅ | ✅ |
 | Content-Addressed Store | ✅ | ✅ | ✅ |
 | Per-Agent Branches | ✅ | Coming soon | Coming soon |
 | Pluggable Telemetry | ✅ | Coming soon | Coming soon |
 | `agentvfs workspace` CLI | ✅ | Coming soon | Coming soon |
 
+## Build from source
+
+Use this path for Linux distros below glibc 2.35, to enable eBPF telemetry, or to contribute.
+
+```bash
+# Linux (Debian/Ubuntu)
+sudo apt install build-essential cmake libfuse3-dev pkg-config \
+                 clang libbpf-dev linux-tools-generic
+cmake -B build && cmake --build build -j
+sudo cmake --install build
+./start.sh /path/to/project
+# eBPF telemetry is on by default; -DAGENTVFS_EBPF=OFF to skip.
+```
+
+```bash
+# macOS
+brew install --cask macos-fuse-t/cask/fuse-t
+cmake -B build -DAGENTVFS_EBPF=OFF -DAGENTVFS_FUSE_T=ON
+cmake --build build -j
+./build/agentvfs --source ~/some-dir --mountpoint /tmp/agentvfs-mnt &
+./build/agentvfs-ctl --sock /tmp/agentvfs-<hash>.sock checkpoint baseline
+```
+
+```powershell
+# Windows — requires WinFsp 2.0+ from https://winfsp.dev
+cmake -B build -DAGENTVFS_EBPF=OFF -DAGENTVFS_WINFSP=ON
+cmake --build build --config Release -j
+.\build\Release\agentvfs.exe --source C:\some\dir --mountpoint Z:
+.\build\Release\agentvfs-ctl.exe --sock \\.\pipe\agentvfs-<hash> checkpoint baseline
+```
 
 ## License
 
